@@ -1,35 +1,775 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Texture++ | Coming Soon</title>
-    <style>
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            font-family: 'Arial', sans-serif;
-            background-color: #f8f9fa;
-            color: #333;
-            flex-direction: column;
-        }
-        h1 {
-            font-size: 3rem;
-            margin-bottom: 0.2rem;
-        }
-        .sub {
-            font-size: 1.5rem;
-            color: #888;
-            border-top: 2px solid #ddd;
-            padding-top: 1rem;
-        }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Texture++: Elevating 3D Asset Texture Resolution with a Region-Aware Diffusion Model</title>
+<meta name="description" content="Texture++ is a region-aware diffusion framework for 3D texture super-resolution. It reformulates UV-space super-resolution as multi-view refinement: seam-aware view selection, quadtree-regularized mask nomination, and a single-step masked diffusion model.">
+<meta name="author" content="Shuaiwei Wang, Shi Li, Jieting Xu, Yuchi Huo, Qi Wang, Wenting Zheng, Rengan Xie">
+<meta name="keywords" content="texture super-resolution, texture synthesis, image super-resolution, AIGC">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Texture++: Elevating 3D Asset Texture Resolution">
+<meta property="og:description" content="Region-aware diffusion for 3D texture super-resolution. SIGGRAPH Asia 2026.">
+<meta property="og:image" content="assets/teaser.webp">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%231c5d8f'/%3E%3Ctext x='50' y='72' font-size='58' font-family='Georgia,serif' font-weight='700' fill='%23fff' text-anchor='middle'%3ET%3C/text%3E%3C/svg%3E">
+
+<style>
+/* ---------------------------------------------------------------- tokens */
+:root {
+  --bg:            #ffffff;
+  --bg-soft:       #f4f6f9;
+  --bg-softer:     #fafbfc;
+  --ink:           #14181d;
+  --ink-2:         #3d4650;
+  --ink-3:         #6b7480;
+  --line:          #e2e6eb;
+  --line-2:        #cfd6de;
+  --accent:        #1c5d8f;
+  --accent-2:      #2f86c9;
+  --accent-soft:   #eaf2f9;
+  --gold:          #b07d1a;
+  --gold-soft:     #fdf5e3;
+  --radius:        14px;
+  --radius-sm:     9px;
+  --shadow:        0 1px 2px rgba(16,24,40,.04), 0 8px 24px -12px rgba(16,24,40,.16);
+  --shadow-lg:     0 24px 60px -18px rgba(16,24,40,.34);
+  --maxw:          1200px;
+  --prose:         100%;
+  --pad:           clamp(20px, 3vw, 40px);
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* ---------------------------------------------------------------- base */
+*, *::before, *::after { box-sizing: border-box; }
+
+/* `stable both-edges` reserves the scrollbar gutter on BOTH sides, so the
+   visible whitespace left and right of the content stays equal. */
+html {
+  scroll-behavior: smooth; scroll-padding-top: 20px; -webkit-text-size-adjust: 100%;
+  scrollbar-gutter: stable both-edges;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.68;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+img { max-width: 100%; height: auto; display: block; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1, h2, h3, h4 { line-height: 1.22; margin: 0; letter-spacing: -0.018em; }
+
+.wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 var(--pad); }
+
+/* ---------------------------------------------------------------- hero */
+.hero {
+  position: relative; overflow: hidden;
+  padding: 58px 0 42px;
+  background:
+    radial-gradient(1100px 420px at 50% -160px, #e8f1f9 0%, rgba(232,241,249,0) 66%),
+    linear-gradient(180deg, var(--bg-softer), var(--bg));
+  border-bottom: 1px solid var(--line);
+}
+.hero::after {
+  content: ""; position: absolute; inset: 0;
+  background-image: linear-gradient(rgba(28,93,143,.048) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(28,93,143,.048) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(700px 320px at 50% 0%, #000 0%, transparent 78%);
+  mask-image: radial-gradient(700px 320px at 50% 0%, #000 0%, transparent 78%);
+  pointer-events: none;
+}
+.hero > .wrap { position: relative; z-index: 1; text-align: center; }
+
+.venue {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 20px;
+  font-size: 13px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--accent); background: #fff; border: 1px solid #cfe2f0;
+  padding: 7px 15px; border-radius: 999px; box-shadow: 0 2px 10px -6px rgba(28,93,143,.4);
+}
+.venue .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-2); }
+
+/* 24.5em is measured, not guessed: the title's first line needs 23.3em up to
+   "Resolution" and 25.6em once "with" is added, so this wraps it into two
+   balanced lines at any width where the column is at least 24.5em wide. */
+h1.title {
+  font-size: clamp(28px, 2.9vw, 42px);
+  font-weight: 800; margin: 0 auto; max-width: 24.5em;
+  letter-spacing: -0.03em;
+}
+h1.title .mk { color: var(--accent); }
+
+/* authors */
+.authors { margin: 28px auto 0; max-width: 60em; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 20px; }
+.author { font-size: 17.5px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.author sup { font-weight: 600; color: var(--accent); font-size: 11.5px; margin-left: 1px; }
+.author .corr { color: var(--gold); }
+
+.affils { margin: 18px auto 0; color: var(--ink-3); font-size: 14.5px; max-width: 62em; line-height: 1.85; }
+.affils sup { color: var(--accent); font-weight: 700; }
+.affils .sep { color: var(--line-2); margin: 0 9px; }
+
+.notes { margin-top: 12px; font-size: 13px; color: var(--ink-3); }
+.notes .badge {
+  display: inline-block; border: 1px solid var(--line-2); border-radius: 6px;
+  padding: 1px 7px; font-weight: 700; font-size: 11px; color: var(--ink-3); background: #fff;
+  margin-right: 5px; vertical-align: 1px;
+}
+
+/* buttons */
+.cta { margin-top: 32px; display: flex; flex-wrap: wrap; gap: 11px; justify-content: center; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 11px 19px; border-radius: 10px;
+  font-size: 15px; font-weight: 650; line-height: 1;
+  border: 1px solid var(--line-2); background: #fff; color: var(--ink);
+  box-shadow: 0 1px 2px rgba(16,24,40,.05);
+  transition: transform .15s ease, box-shadow .18s ease, background .18s ease, border-color .18s ease, color .18s ease;
+}
+.btn:hover { text-decoration: none; transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--line-2); }
+.btn svg { width: 16px; height: 16px; flex: none; }
+
+/* Same shape, padding and type as .btn, but visibly inactive. Used for a
+   target that is not released yet, so the row stays visually uniform. */
+.btn-dim {
+  color: #a6aeb8; background: #f2f4f7; border-color: #e5e9ee;
+  box-shadow: none; cursor: not-allowed;
+}
+.btn-dim:hover {
+  transform: none; box-shadow: none;
+  background: #f2f4f7; border-color: #e5e9ee; color: #a6aeb8;
+}
+.btn-dim svg { opacity: .5; }
+.btn-dim .soon {
+  font-size: 10.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+  color: #aeb6c0; border: 1px solid #e0e5eb; border-radius: 999px; padding: 2px 7px;
+}
+
+/* ---------------------------------------------------------------- sections */
+section { padding: 62px 0; border-bottom: 1px solid var(--line); }
+section.alt { background: var(--bg-softer); }
+section:last-of-type { border-bottom: 0; }
+
+.sec-head { text-align: center; margin-bottom: 34px; }
+.sec-kicker {
+  font-size: 13.5px; font-weight: 750; letter-spacing: .15em; text-transform: uppercase;
+  color: var(--accent-2);
+}
+.sec-lede { margin: 13px auto 0; max-width: 46em; color: var(--ink-3); font-size: 16.5px; }
+
+/* prose */
+.prose { max-width: var(--prose); margin: 0 auto; }
+.prose p { margin: 0 0 1.15em; color: var(--ink-2); }
+.prose p:last-child { margin-bottom: 0; }
+.prose strong { color: var(--ink); font-weight: 650; }
+.prose .lead { font-size: 18px; }
+
+/* ---------------------------------------------------------------- figures */
+figure { margin: 0; }
+.fig {
+  background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px; box-shadow: var(--shadow);
+}
+.fig img { border-radius: 7px; width: 100%; cursor: zoom-in; background: #fff; }
+figcaption {
+  margin-top: 13px; font-size: 14.5px; line-height: 1.62; color: var(--ink-3);
+  padding: 0 6px 2px;
+}
+figcaption strong { color: var(--ink-2); font-weight: 650; }
+
+.fig-gap { margin-top: 26px; }
+
+/* method stage cards */
+.stages { display: grid; gap: 15px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 30px; }
+.stage {
+  position: relative; background: #fff; border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 24px 22px 22px; box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.stage::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: linear-gradient(180deg, var(--accent-2), var(--accent));
+}
+.stage .idx {
+  font-size: 11.5px; font-weight: 800; letter-spacing: .12em;
+  color: var(--accent-2); text-transform: uppercase;
+}
+.stage h3 { font-size: 18.5px; font-weight: 720; margin: 7px 0 10px; letter-spacing: -0.02em; }
+.stage p { margin: 0; font-size: 15px; color: var(--ink-2); line-height: 1.64; }
+.stage code {
+  font-family: var(--mono); font-size: .87em; background: var(--accent-soft);
+  border-radius: 5px; padding: 1.5px 5px; color: #16496f; white-space: nowrap;
+}
+
+/* tables */
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; box-shadow: var(--shadow); }
+table { border-collapse: collapse; width: 100%; font-size: 15px; min-width: 640px; }
+th, td { padding: 11px 16px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th {
+  background: var(--bg-soft); font-size: 13px; font-weight: 700; color: var(--ink-2);
+  letter-spacing: .02em; border-bottom: 1px solid var(--line-2); position: sticky; top: 0;
+}
+thead th .dir { color: var(--ink-3); font-weight: 600; font-size: 11.5px; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: var(--bg-softer); }
+tr.best td { background: var(--accent-soft); font-weight: 700; color: #12405f; }
+tr.best:hover td { background: #e0edf7; }
+tr.best td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+td .win { color: var(--accent); font-weight: 700; }
+.tnote { margin-top: 11px; font-size: 13.5px; color: var(--ink-3); line-height: 1.6; }
+.tcap { margin: 0 0 11px; font-size: 14.5px; color: var(--ink-3); line-height: 1.6; }
+.tcap strong { color: var(--ink); font-weight: 680; }
+
+/* vertically stacked figures, each full width */
+.stack { display: grid; gap: 32px; }
+
+/* citation */
+.bib {
+  position: relative; background: #fff; border-radius: var(--radius);
+  border: 1px solid var(--line-2); box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.bib-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 14px; border-bottom: 1px solid var(--line);
+}
+.bib-head .copy {
+  margin-left: auto; font: inherit; font-size: 12.5px; font-weight: 650;
+  color: var(--ink-2); background: #fff; border: 1px solid var(--line-2);
+  padding: 6px 13px; border-radius: 7px; cursor: pointer;
+  transition: background .18s ease, color .18s ease, border-color .18s ease;
+}
+.bib-head .copy:hover { background: var(--accent-soft); color: var(--accent); border-color: #cfe2f0; }
+.bib-head .copy.done { background: #e9f7ee; border-color: #a3ddb8; color: #1c7a42; }
+.bib pre {
+  margin: 0; padding: 18px; overflow-x: auto; background: #fff;
+  font-family: var(--mono); font-size: 13px; line-height: 1.72; color: var(--ink);
+  tab-size: 2;
+}
+.bib .k { color: var(--accent); }
+.bib .f { color: var(--ink-2); }
+
+/* lightbox */
+.lb {
+  position: fixed; inset: 0; z-index: 200; display: none;
+  background: rgba(9,13,18,.93); padding: 34px;
+  align-items: center; justify-content: center; cursor: zoom-out;
+}
+.lb.open { display: flex; animation: fade .18s ease; }
+.lb img { max-width: 100%; max-height: 100%; width: auto; border-radius: 8px; box-shadow: var(--shadow-lg); }
+.lb .x {
+  position: absolute; top: 16px; right: 20px; width: 40px; height: 40px;
+  border-radius: 50%; border: 1px solid rgba(255,255,255,.28); background: rgba(255,255,255,.08);
+  color: #fff; font-size: 20px; line-height: 1; cursor: pointer;
+}
+.lb .x:hover { background: rgba(255,255,255,.2); }
+@keyframes fade { from { opacity: 0 } to { opacity: 1 } }
+
+/* to-top */
+.totop {
+  position: fixed; right: 22px; bottom: 22px; z-index: 70;
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 1px solid var(--line-2); background: #fff; color: var(--ink-2);
+  box-shadow: var(--shadow); cursor: pointer;
+  display: grid; place-items: center;
+  opacity: 0; visibility: hidden; transform: translateY(8px);
+  transition: opacity .22s ease, transform .22s ease, visibility .22s;
+}
+.totop.show { opacity: 1; visibility: visible; transform: none; }
+.totop:hover { color: var(--accent); border-color: var(--accent); }
+
+/* reveal on scroll */
+.rv { opacity: 0; transform: translateY(14px); transition: opacity .6s cubic-bezier(.2,.7,.3,1), transform .6s cubic-bezier(.2,.7,.3,1); }
+.rv.in { opacity: 1; transform: none; }
+
+/* ---------------------------------------------------------------- responsive */
+
+/* Everything lives in a centered column, so no wide-screen overrides are needed. */
+
+@media (max-width: 900px) {
+  .stages { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  body { font-size: 16px; }
+  .wrap { padding: 0 17px; }
+  section { padding: 46px 0; }
+  .hero { padding: 46px 0 34px; }
+  .author { font-size: 16px; }
+  .lb { padding: 14px; }
+  thead th { position: static; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  .rv { opacity: 1; transform: none; }
+}
+
+@media print {
+  .totop, .cta, .lb { display: none !important; }
+  section { break-inside: avoid; }
+}
+</style>
 </head>
-<body>
-    <h1>📄 Texture++</h1>
-    <div class="sub">🚧 Coming soon ...</div>
+
+<body id="top">
+
+<!-- ============================================================ hero -->
+<header class="hero">
+  <div class="wrap">
+    <h1 class="title">Texture<span class="mk">++</span>: Elevating 3D Asset Texture Resolution with a Region-Aware Diffusion Model</h1>
+
+    <div class="venue"><span class="dot"></span> SIGGRAPH Asia 2026</div>
+
+    <div class="authors">
+      <span class="author">Shuaiwei Wang<sup>1,*</sup></span>
+      <span class="author">Shi Li<sup>1,*</sup></span>
+      <span class="author">Jieting Xu<sup>1</sup></span>
+      <span class="author">Yuchi Huo<sup>1</sup></span>
+      <span class="author">Qi Wang<sup>2</sup></span>
+      <span class="author">Wenting Zheng<sup>1</sup></span>
+      <span class="author">Rengan Xie<sup>1,&dagger;</sup></span>
+    </div>
+
+    <div class="affils">
+      <sup>1</sup>State Key Laboratory of CAD&amp;CG, Zhejiang University
+      <span class="sep">·</span>
+      <sup>2</sup>North China Electric Power University
+    </div>
+
+    <div class="notes">
+      <span class="badge">*</span>Equal contribution.&nbsp;&nbsp;
+      <span class="badge">&dagger;</span>Corresponding author.
+    </div>
+
+    <div class="cta">
+      <a class="btn" href="https://arxiv.org/abs/2607.21504" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        Paper
+      </a>
+      <!-- The code release is still being organized, so this button is inert for now.
+           To publish it, delete the <span> below and uncomment the anchor next to it. -->
+      <span class="btn btn-dim" aria-disabled="true" title="Code will be released soon.">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.7 4.8 18.7 5.1 18.7 5.1c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+        Code <span class="soon">soon</span>
+      </span>
+      <!--
+      <a class="btn" href="https://github.com/cynic0622/Texture-pp" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.7 4.8 18.7 5.1 18.7 5.1c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+        Code
+      </a>
+      -->
+      <a class="btn" href="#citation" title="BibTeX is in the Citation section">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        BibTeX
+      </a>
+      <!-- To add a video later, uncomment and fill in the URL:
+      <a class="btn" href="https://www.youtube.com/watch?v=XXXXXXXXXXX" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M10 9l5 3-5 3z"/></svg>
+        Video
+      </a>
+      -->
+    </div>
+  </div>
+</header>
+
+<!-- ============================================================ teaser -->
+<section id="teaser" style="padding-top:44px">
+  <div class="wrap">
+    <figure class="rv">
+      <div class="fig">
+        <img src="assets/teaser.webp" fetchpriority="high" decoding="async" width="2200" height="682"
+             alt="3D meshes diagonally split between the low-resolution input and the Texture++ result, with zoomed-in comparisons against OSEDiff, InvSR, HYPIR, DiffBIR, PiSASR and the ground truth.">
+      </div>
+      <figcaption>
+        <strong>Texture++ elevates the texture resolution of 3D assets.</strong>
+        Each mesh is split diagonally between the low-resolution input (bottom-left) and our
+        upscaled result (top-right). As the zoomed-in regions show, our approach recovers intricate
+        details that are significantly closer to the ground truth, outperforming recent
+        state-of-the-art methods.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================================================ abstract -->
+<section id="abstract" class="alt">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="sec-kicker">Abstract</div>
+    </div>
+
+    <div class="prose rv">
+      <p class="lead">
+        Numerous 3D assets are discarded due to low texture resolution, while current
+        super-resolution models ignore texture maps and focus on natural images. An efficient and
+        generalizable texture super-resolution model can revitalize a large corpus of aging yet
+        valuable assets across industries such as film and video games. We present
+        <strong>Texture++</strong>, a novel framework for texture super-resolution, which enhances the
+        low-resolution textures of assets to produce high-resolution, high-quality results.
+      </p>
+      <p>
+        Specifically, we reformulate the task of super-resolution in UV space into performing it
+        across multiple rendered views and merging the outputs. Firstly, to achieve more complete and
+        continuous textures in the view space, we propose an <strong>adaptive view selection
+        strategy</strong> to integrate textures dispersed across UV texture patches. Furthermore, we
+        introduce a <strong>quadtree-based texture region organization</strong> method for combining
+        super-resolved textures from different viewpoints, providing masks to distinguish regions that
+        require improvement. Finally, we design a <strong>diffusion-based super-resolution model</strong>
+        that enhances the texture resolution for specified masked regions, seamlessly integrating with
+        surrounding regions.
+      </p>
+      <p>
+        Through comprehensive evaluations, we demonstrate that our approach yields textures with
+        substantially improved detail and coherence over existing methods.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ method -->
+<section id="method">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="sec-kicker">Method</div>
+      <p class="sec-lede">
+        Starting from a bilinearly upscaled texture, Texture++ iterates: pick the right views,
+        nominate the regions worth updating, super-resolve them locally, and project the result back
+        into the texture map.
+      </p>
+    </div>
+
+    <figure class="rv">
+      <div class="fig">
+        <img src="assets/pipeline.webp" loading="lazy" decoding="async" width="2200" height="729"
+             alt="Overview of Texture++: seam-aware view selection, SR mask generation with a global quality map and quadtree regularization, and a diffusion-based local SR model.">
+      </div>
+      <figcaption>
+        <strong>Overview.</strong>
+        Our method consists of four main stages. <strong>(1) Observation view selection:</strong>
+        a set of canonical viewpoints (v<sub>1</sub>, …, v<sub>n</sub>) are selected to render the 3D
+        model M. <strong>(2) SR region nomination:</strong> for each view we render an image
+        I<sup>LR</sup><sub>n</sub> and compute a per-view quality map Q<sub>n</sub>, compared against a
+        global quality map Q<sub>global</sub> to generate a binary mask M<sub>n</sub> that identifies
+        regions for enhancement; the global map is then updated and refined using quadtree-based
+        regularization to produce the final mask M&prime;<sub>n</sub>.
+        <strong>(3) Local SR generation:</strong> the rendered image and its mask are fed into the
+        local SR model, which outputs a locally super-resolved image I<sup>HR</sup><sub>n</sub>.
+        <strong>(4) Global texture update:</strong> the new high-resolution details are projected back
+        onto the texture T<sup>HR</sup>.
+      </figcaption>
+    </figure>
+
+    <div class="stages">
+      <div class="stage rv">
+        <div class="idx">Stage 01</div>
+        <h3>Seam-Aware View Selection</h3>
+        <p>
+          UV unwrapping cuts a continuous surface into isolated charts, so multi-view updates can
+          assign different high-frequency details to the same area and produce seams. We select a
+          frontal canonical view per chart from its area-weighted average normal,
+          <code>v* = Σ A<sub>i</sub>N<sub>i</sub> / ‖Σ A<sub>i</sub>N<sub>i</sub>‖</code>, recursively
+          splitting charts that span highly curved surfaces. Views are also selected <em>across</em>
+          charts along seam strips, then consolidated by clustering and visibility culling so that a
+          continuous pattern is super-resolved consistently within a single view.
+        </p>
+      </div>
+
+      <div class="stage rv">
+        <div class="idx">Stage 02</div>
+        <h3>SR Region Nomination</h3>
+        <p>
+          Updating every pixel repeatedly blurs the texture, so we maintain a global quality map and
+          only revisit regions that can actually improve. Per-pixel quality is
+          <code>Q = max(0, cos(v*·N)) / d²</code>, which favors frontal, close observations. Raw
+          masks are fragmented, and jagged boundaries get misread as texture, so a
+          <strong>quadtree</strong> recursively merges them — homogeneous nodes terminate early and
+          mixed nodes are consolidated — into clean rectangular blocks.
+        </p>
+      </div>
+
+      <div class="stage rv">
+        <div class="idx">Stage 03</div>
+        <h3>Local SR Generation</h3>
+        <p>
+          A Stable Diffusion 2.1-base U-Net is fine-tuned with two LoRA modules. The latent is
+          concatenated with the downsampled mask as a 5-channel input, and the model predicts a latent
+          residual instead of running a denoising schedule:
+          <code>z<sub>final</sub> = z − Δz ⊙ M</code>. Training minimizes a masked MSE plus a masked
+          LPIPS loss, so enhancement stays inside the mask and the boundary remains seamless.
+        </p>
+      </div>
+
+      <div class="stage rv">
+        <div class="idx">Stage 04</div>
+        <h3>Global Texture Update</h3>
+        <p>
+          The locally super-resolved view is projected directly back onto the HR texture — a direct
+          projection rather than a slow optimization-based refinement. Because updates are constrained
+          by the mask and the global quality map only ever increases, each iteration monotonically
+          accumulates detail until the final high-resolution asset is produced.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ results -->
+<section id="results" class="alt">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="sec-kicker">Results</div>
+      <p class="sec-lede">
+        Evaluated at 4&times; upsampling on roughly 50 diverse 3D assets from TRELLIS and Sketchfab,
+        covering scene-level models and objects with complex textures.
+      </p>
+    </div>
+
+    <p class="tcap rv" style="margin-top:30px">
+      <strong>Table 1.</strong> Quantitative comparison with state-of-the-art methods for 4&times;
+      texture super-resolution. Best results are highlighted.
+    </p>
+    <div class="table-scroll rv">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Method</th>
+            <th scope="col">PSNR <span class="dir">(&uarr;)</span></th>
+            <th scope="col">SSIM <span class="dir">(&uarr;)</span></th>
+            <th scope="col">LPIPS <span class="dir">(&darr;)</span></th>
+            <th scope="col">DISTS <span class="dir">(&darr;)</span></th>
+            <th scope="col">Time (s) <span class="dir">(&darr;)</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>DiffBIR</td><td>35.9406</td><td>0.9292</td><td>0.1067</td><td>0.1056</td><td>586.2</td></tr>
+          <tr><td>PBR-SR</td><td>37.4186</td><td>0.9503</td><td>0.0802</td><td>0.0741</td><td>757.8</td></tr>
+          <tr><td>Elevate3D</td><td>22.8528</td><td>0.8583</td><td>0.1639</td><td>0.2114</td><td>3145.0</td></tr>
+          <tr><td>HYPIR</td><td>33.3778</td><td>0.8997</td><td>0.1066</td><td>0.0996</td><td>48.0</td></tr>
+          <tr><td>OSEDiff</td><td>31.6975</td><td>0.9168</td><td>0.0959</td><td>0.0964</td><td>108.6</td></tr>
+          <tr><td>PiSASR</td><td>33.1539</td><td>0.9159</td><td>0.0866</td><td>0.0864</td><td>111.4</td></tr>
+          <tr><td>InvSR</td><td>30.5382</td><td>0.8789</td><td>0.1281</td><td>0.1123</td><td>42.0</td></tr>
+          <tr><td>Text2Tex</td><td>27.5001</td><td>0.8855</td><td>0.1405</td><td>0.1272</td><td>321.5</td></tr>
+          <tr><td>Paint3D</td><td>24.3583</td><td>0.8300</td><td>0.1826</td><td>0.1570</td><td>130.4</td></tr>
+          <tr><td>MVPaint</td><td>20.9008</td><td>0.7098</td><td>0.2581</td><td>0.1872</td><td>215.6</td></tr>
+          <tr class="best"><td>Ours</td><td>37.5277</td><td>0.9524</td><td>0.0637</td><td>0.0736</td><td>94.4</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="tnote rv">
+      Texture++ attains the best PSNR, SSIM, LPIPS and DISTS among all compared methods. It is also
+      the third-fastest overall, at 94.4 s per asset against 757.8 s for PBR-SR and 3145.0 s for
+      Elevate3D — super-resolution runs on 1K rendered views with a single-step model, rather than on
+      the 2K texture with an iterative pipeline.
+    </p>
+
+    <div class="stack fig-gap">
+      <figure class="rv">
+        <div class="fig">
+          <img src="assets/more_results1.webp" loading="lazy" decoding="async" width="2200" height="2323"
+               alt="Qualitative results comparing rendered low-resolution input, Texture++ high-resolution output and ground truth, restoring sharp text and fine detail.">
+        </div>
+        <figcaption>
+          <strong>Qualitative results (1/2).</strong>
+          Each triplet shows the rendered LR input, our HR output, and the ground truth. In these
+          examples, our method excels at restoring sharp text and fine textural details that are often
+          severely degraded in the LR inputs.
+        </figcaption>
+      </figure>
+
+      <figure class="rv">
+        <div class="fig">
+          <img src="assets/more_results3.webp" loading="lazy" decoding="async" width="2200" height="2141"
+               alt="Further qualitative results spanning structured patterns such as text and symbols, plus organic surface details such as turtle and fish skin.">
+        </div>
+        <figcaption>
+          <strong>Qualitative results (2/2).</strong>
+          Each triplet shows the rendered LR input, our HR output, and the GT. These examples span both
+          structured patterns (text, symbols) and organic surface details (such as turtle and fish skin
+          textures), demonstrating the versatility of our method.
+        </figcaption>
+      </figure>
+
+      <figure class="rv">
+        <div class="fig">
+          <img src="assets/scan_models.webp" loading="lazy" decoding="async" width="2200" height="2588"
+               alt="Qualitative results on real-world 3D assets including scanned objects and architectural scenes.">
+        </div>
+        <figcaption>
+          <strong>Qualitative results on real-world 3D assets.</strong>
+          Our method consistently recovers fine-grained details and structural coherence.
+        </figcaption>
+      </figure>
+
+      <figure class="rv">
+        <div class="fig">
+          <img src="assets/artist.webp" loading="lazy" decoding="async" width="2200" height="906"
+               alt="Pairwise comparison on real-world low-quality textures between our output and a professional artist's manual restoration.">
+        </div>
+        <figcaption>
+          <strong>Pairwise qualitative results on real-world low-quality textures.</strong>
+          Our results achieve comparable visual quality to professional artist restoration in terms of
+          texture clarity and structure preservation.
+        </figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ citation -->
+<section id="citation">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="sec-kicker">Citation</div>
+      <p class="sec-lede">
+        If you find Texture++ useful in your research, please consider citing our work.
+      </p>
+    </div>
+
+    <div class="prose rv">
+      <div class="bib">
+        <div class="bib-head">
+          <button class="copy" id="copybib" type="button">Copy</button>
+        </div>
+
+<pre id="bibtex"><span class="k">@misc</span>{<span class="f">wang2026textureelevating3dasset</span>,
+  <span class="f">author</span>        = {Shuaiwei Wang and Shi Li and Jieting Xu and Yuchi Huo and
+                   Qi Wang and Wenting Zheng and Rengan Xie},
+  <span class="f">title</span>         = {Texture++: Elevating 3D Asset Texture Resolution with a Region-Aware Diffusion Model},
+  <span class="f">year</span>          = {2026},
+  <span class="f">eprint</span>        = {2607.21504},
+  <span class="f">archivePrefix</span> = {arXiv},
+  <span class="f">primaryClass</span>  = {cs.CV},
+  <span class="f">url</span>           = {https://arxiv.org/abs/2607.21504}
+}</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<button class="totop" id="totop" type="button" aria-label="Back to top">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+</button>
+
+<div class="lb" id="lb" role="dialog" aria-modal="true" aria-label="Enlarged figure">
+  <button class="x" id="lbx" type="button" aria-label="Close">&times;</button>
+  <img id="lbimg" alt="">
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---- back-to-top visibility ---- */
+  var totop = document.getElementById("totop");
+
+  function onScroll() {
+    var y = window.scrollY || document.documentElement.scrollTop;
+    totop.classList.toggle("show", y > 700);
+  }
+
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
+  totop.addEventListener("click", function () {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  /* ---- reveal on scroll ---- */
+  var rvs = document.querySelectorAll(".rv");
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          e.target.classList.add("in");
+          io.unobserve(e.target);
+        }
+      });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.04 });
+    rvs.forEach(function (el, i) {
+      el.style.transitionDelay = Math.min(i % 4, 3) * 55 + "ms";
+      io.observe(el);
+    });
+  } else {
+    rvs.forEach(function (el) { el.classList.add("in"); });
+  }
+
+  /* ---- lightbox ---- */
+  var lb = document.getElementById("lb");
+  var lbimg = document.getElementById("lbimg");
+  var lbx = document.getElementById("lbx");
+
+  function openLb(src, alt) {
+    lbimg.src = src;
+    lbimg.alt = alt || "";
+    lb.classList.add("open");
+    document.body.style.overflow = "hidden";
+    lbx.focus();
+  }
+  function closeLb() {
+    lb.classList.remove("open");
+    lbimg.removeAttribute("src");
+    document.body.style.overflow = "";
+  }
+
+  document.querySelectorAll(".fig img").forEach(function (img) {
+    img.addEventListener("click", function () {
+      openLb(img.currentSrc || img.src, img.alt);
+    });
+  });
+  lb.addEventListener("click", function (e) {
+    if (e.target !== lbimg) closeLb();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && lb.classList.contains("open")) closeLb();
+  });
+
+  /* ---- copy BibTeX ---- */
+  var btn = document.getElementById("copybib");
+  var pre = document.getElementById("bibtex");
+
+  btn.addEventListener("click", function () {
+    var text = pre.innerText;
+    var done = function () {
+      btn.textContent = "Copied";
+      btn.classList.add("done");
+      setTimeout(function () {
+        btn.textContent = "Copy";
+        btn.classList.remove("done");
+      }, 1900);
+    };
+    var fallback = function () {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); done(); } catch (err) { /* ignore */ }
+      document.body.removeChild(ta);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else {
+      fallback();
+    }
+  });
+})();
+</script>
 </body>
 </html>
