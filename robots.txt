@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://cynic0622.github.io/Texture-pp/sitemap.xml
